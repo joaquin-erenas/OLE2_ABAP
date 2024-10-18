@@ -1,89 +1,157 @@
-*&---------------------------------------------------------------------*
-*& Report Z_J_OLE_COMBO
-*&---------------------------------------------------------------------*
-*&
-*&---------------------------------------------------------------------*
-REPORT z_j_ole_combo.
+REPORT z_j_ole.
+************************************************************************
+* Program: Z_J_OLE
+* Author: Joaquin Erenas
+* Created on: 17-10-2024
+* Description:
+*   Demo para aprender a crear archivos de Excel
+*   utilizando OLE2.
 
+************************************************************************
 
-* Variables for Excel OLE
-DATA: excel_application TYPE ole2_object,
-      workbook          TYPE ole2_object,
-      worksheet         TYPE ole2_object,
-      cells             TYPE ole2_object,
-      range             TYPE ole2_object,
-      validation        TYPE ole2_object,
-      it_combo          TYPE TABLE OF string,
-      row               TYPE i,
-      column            TYPE i,
-      options           TYPE REF TO data.
+TYPE-POOLS: ole2.
 
-* Sample data for combo box
-CONSTANTS: c_option1 TYPE string VALUE 'Option 1',
-           c_option2 TYPE string VALUE 'Option 2',
-           c_option3 TYPE string VALUE 'Option 3'.
+DATA: wf_excel      TYPE ole2_object, " Objeto Excel
+      wf_workbook   TYPE ole2_object, " Libro de trabajo
+      wf_worksheet  TYPE ole2_object, " Hoja de trabajo
+      wf_cell_from  TYPE ole2_object, " Rango de celdas
+      wf_cell_to    TYPE ole2_object, " Rango de celdas
+      wf_range      TYPE ole2_object, " Rango de celdas
+      wf_validation TYPE ole2_object, " Objeto de validación
+      wf_cell_list  TYPE ole2_object, " Validación de lista
+      p_file        TYPE string,      " Ruta completa del archivo
+      wf_path       TYPE string,      " Ruta del archivo
+      wf_fullpath   TYPE string,      " Ruta completa con el nombre del archivo
+      wf_action     TYPE i.           " Acción del archivo
 
-* Add options to the combo box
-APPEND c_option1 TO it_combo.
-APPEND c_option2 TO it_combo.
-APPEND c_option3 TO it_combo.
+DATA: lt_sflight TYPE TABLE OF sflight, " Tabla interna con los datos
+      wa_sflight TYPE sflight.         " Work area de SFLIGHT
 
-* Create Excel OLE object
-CREATE OBJECT excel_application 'Excel.Application'.
-IF sy-subrc <> 0.
-  MESSAGE e001(zmsg) WITH 'Unable to create Excel object'.
-  EXIT.
-ENDIF.
+* Parámetro para la selección del archivo
+SELECTION-SCREEN BEGIN OF BLOCK blk1 WITH FRAME TITLE TEXT-001.
+  PARAMETERS: p_fname LIKE rlgrap-filename OBLIGATORY.
+SELECTION-SCREEN END OF BLOCK blk1.
 
-* Make Excel visible
-SET PROPERTY OF excel_application 'Visible' = 1.
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_fname.
+  CALL METHOD cl_gui_frontend_services=>file_save_dialog
+    EXPORTING
+      window_title         = 'Seleccione el archivo para guardar'
+      default_file_name    = 'Ejemplo_sflight.xlsx'
+      file_filter          = 'Archivos de Excel (*.xlsx) | *.xlsx'
+    CHANGING
+      filename             = wf_fullpath
+      path                 = wf_path
+      fullpath             = wf_fullpath
+      user_action          = wf_action
+    EXCEPTIONS
+      cntl_error           = 1
+      error_no_gui         = 2
+      not_supported_by_gui = 3
+      OTHERS               = 4.
 
-* Create workbook
-CALL METHOD OF excel_application 'Workbooks' = workbook.
-IF sy-subrc <> 0.
-  MESSAGE e002(zmsg) WITH 'Unable to create workbook'.
-  EXIT.
-ENDIF.
-
-* Add a new worksheet
-CALL METHOD OF workbook 'Worksheets' = worksheet.
-IF sy-subrc <> 0 OR worksheet IS INITIAL.
-  MESSAGE e003(zmsg) WITH 'Unable to create worksheet'.
-  EXIT.
-ENDIF.
-
-* Populate data in Excel
-row = 1.
-column = 1.
-LOOP AT it_combo INTO DATA(option).
-  CALL METHOD OF worksheet 'Cells' = cells EXPORTING #1 = row #2 = column.
-  IF sy-subrc <> 0.
-    MESSAGE e004(zmsg) WITH 'Unable to get cells'.
-    EXIT.
+  IF sy-subrc = 0 AND wf_action = cl_gui_frontend_services=>action_ok.
+    p_fname = wf_fullpath.
+  ELSE.
+    MESSAGE 'No se seleccionó un archivo.' TYPE 'E'.
   ENDIF.
-  SET PROPERTY OF cells 'Value' = option.
-  ADD 1 TO row.
-ENDLOOP.
 
-* Add combo box
-CALL METHOD OF worksheet 'Range' = range EXPORTING #1 = 'A1:A3'.
-CREATE OBJECT validation 'Validation'.
-CALL METHOD OF validation 'Add' EXPORTING #1 = 3 #2 = 1.
+START-OF-SELECTION.
+  PERFORM get_data.
+  PERFORM create_excel.
 
-* Convert table to variant
-CREATE DATA options TYPE TABLE OF string.
-ASSIGN options->* TO FIELD-SYMBOL(<options>).
-<options> = it_combo[].
+*&---------------------------------------------------------------------*
+*&      Form  GET_DATA
+*&---------------------------------------------------------------------*
+*       Obtener los datos de la tabla SFLIGHT
+*----------------------------------------------------------------------*
+FORM get_data.
+  SELECT * FROM sflight INTO TABLE lt_sflight.
+  IF sy-subrc <> 0.
+    MESSAGE 'No se encontraron datos en la tabla SFLIGHT.' TYPE 'E'.
+  ENDIF.
+ENDFORM.
 
-* Set list for validation
-CALL METHOD OF validation 'List' = <options>.
+*&---------------------------------------------------------------------*
+*&      Form  CREATE_EXCEL
+*&---------------------------------------------------------------------*
+*       Crear el archivo de Excel con OLE
+*----------------------------------------------------------------------*
+FORM create_excel.
+* Iniciar la aplicación Excel
+  CREATE OBJECT wf_excel 'EXCEL.APPLICATION'.
+  SET PROPERTY OF wf_excel 'VISIBLE' = 1.
 
-* Save Excel file
-CALL METHOD OF workbook 'SaveAs' EXPORTING #1 = 'C:\path\to\your\file_with_combo.xlsx'.
+* Crear un nuevo libro de trabajo
+  CALL METHOD OF wf_excel 'WORKBOOKS' = wf_workbook.
+  CALL METHOD OF wf_workbook 'ADD'.
 
-* Close Excel
-CALL METHOD OF workbook 'Close'.
-CALL METHOD OF excel_application 'Quit'.
+* Obtener la hoja activa
+  CALL METHOD OF wf_excel 'ActiveSheet' = wf_worksheet.
+  SET PROPERTY OF wf_worksheet 'NAME' = 'Datos de Vuelos'.
 
-* Release Excel OLE object
-FREE OBJECT excel_application.
+* Escribir los encabezados
+  CALL METHOD OF wf_excel 'Cells' = wf_cell_from EXPORTING #1 = 1 #2 = 1.
+  SET PROPERTY OF wf_cell_from 'Value' = 'Carrier'.
+  CALL METHOD OF wf_excel 'Cells' = wf_cell_from EXPORTING #1 = 1 #2 = 2.
+  SET PROPERTY OF wf_cell_from 'Value' = 'Connection'.
+  CALL METHOD OF wf_excel 'Cells' = wf_cell_from EXPORTING #1 = 1 #2 = 3.
+  SET PROPERTY OF wf_cell_from 'Value' = 'Flight Date'.
+  CALL METHOD OF wf_excel 'Cells' = wf_cell_from EXPORTING #1 = 1 #2 = 4.
+  SET PROPERTY OF wf_cell_from 'Value' = 'Seats Maximum'.
+  CALL METHOD OF wf_excel 'Cells' = wf_cell_from EXPORTING #1 = 1 #2 = 5.
+  SET PROPERTY OF wf_cell_from 'Value' = 'Seats Occupied'.
+
+* Formato para los encabezados
+  CALL METHOD OF wf_excel 'Cells' = wf_cell_from EXPORTING #1 = 1 #2 = 1.
+  CALL METHOD OF wf_excel 'Cells' = wf_cell_to EXPORTING #1 = 1 #2 = 5.
+  CALL METHOD OF wf_excel 'Range' = wf_range EXPORTING #1 = wf_cell_from #2 = wf_cell_to.
+  CALL METHOD OF wf_range 'Interior' = wf_cell_from.
+  SET PROPERTY OF wf_cell_from 'Color' = 255. " Fondo rojo
+  CALL METHOD OF wf_range 'Font' = wf_cell_to.
+  SET PROPERTY OF wf_cell_to 'Color' = 16777215. " Texto blanco
+  SET PROPERTY OF wf_cell_to 'Bold' = 1.
+  SET PROPERTY OF wf_range 'HorizontalAlignment' = -4108. " Centrar el texto
+
+  " Creará una lista de valores para la celda B2
+  CALL METHOD OF wf_excel 'Cells' = wf_cell_from EXPORTING #1 = 2 #2 = 2.
+  CALL METHOD OF wf_cell_from 'Validation' = wf_validation.
+  CALL METHOD OF wf_validation 'Add' EXPORTING #1 = 3 #2 = 1 #3 = 1 #4 = 'Ejemplo lista'.
+
+* Escribir los datos en el Excel
+  DATA(lv_row) = 2.
+  LOOP AT lt_sflight INTO wa_sflight.
+    CALL METHOD OF wf_excel 'Cells' = wf_cell_from EXPORTING #1 = lv_row #2 = 1.
+    SET PROPERTY OF wf_cell_from 'Value' = wa_sflight-carrid.
+
+    CALL METHOD OF wf_excel 'Cells' = wf_cell_from EXPORTING #1 = lv_row #2 = 2.
+    SET PROPERTY OF wf_cell_from 'Value' = wa_sflight-connid.
+
+    CALL METHOD OF wf_excel 'Cells' = wf_cell_from EXPORTING #1 = lv_row #2 = 3.
+    SET PROPERTY OF wf_cell_from 'Value' = wa_sflight-fldate.
+
+    CALL METHOD OF wf_excel 'Cells' = wf_cell_from EXPORTING #1 = lv_row #2 = 4.
+    SET PROPERTY OF wf_cell_from 'Value' = wa_sflight-seatsmax.
+
+    CALL METHOD OF wf_excel 'Cells' = wf_cell_from EXPORTING #1 = lv_row #2 = 5.
+    SET PROPERTY OF wf_cell_from 'Value' = wa_sflight-seatsocc.
+
+    lv_row = lv_row + 1.
+  ENDLOOP.
+
+* Ajustar el ancho de las columnas
+  CALL METHOD OF wf_excel 'Columns' = wf_cell_to EXPORTING #1 = 'A:E'.
+  CALL METHOD OF wf_cell_to 'Autofit'.
+
+* Guardar el archivo
+  CALL METHOD OF wf_workbook 'SaveAs' EXPORTING #1 = p_fname.
+
+* Cerrar Excel
+  CALL METHOD OF wf_workbook 'Close'.
+  CALL METHOD OF wf_excel 'Quit'.
+
+* Liberar los objetos
+  FREE OBJECT wf_excel.
+  FREE OBJECT wf_workbook.
+  FREE OBJECT wf_worksheet.
+
+ENDFORM.
