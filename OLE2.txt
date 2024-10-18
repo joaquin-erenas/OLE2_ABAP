@@ -1,0 +1,89 @@
+*&---------------------------------------------------------------------*
+*& Report Z_J_OLE_COMBO
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT z_j_ole_combo.
+
+
+* Variables for Excel OLE
+DATA: excel_application TYPE ole2_object,
+      workbook          TYPE ole2_object,
+      worksheet         TYPE ole2_object,
+      cells             TYPE ole2_object,
+      range             TYPE ole2_object,
+      validation        TYPE ole2_object,
+      it_combo          TYPE TABLE OF string,
+      row               TYPE i,
+      column            TYPE i,
+      options           TYPE REF TO data.
+
+* Sample data for combo box
+CONSTANTS: c_option1 TYPE string VALUE 'Option 1',
+           c_option2 TYPE string VALUE 'Option 2',
+           c_option3 TYPE string VALUE 'Option 3'.
+
+* Add options to the combo box
+APPEND c_option1 TO it_combo.
+APPEND c_option2 TO it_combo.
+APPEND c_option3 TO it_combo.
+
+* Create Excel OLE object
+CREATE OBJECT excel_application 'Excel.Application'.
+IF sy-subrc <> 0.
+  MESSAGE e001(zmsg) WITH 'Unable to create Excel object'.
+  EXIT.
+ENDIF.
+
+* Make Excel visible
+SET PROPERTY OF excel_application 'Visible' = 1.
+
+* Create workbook
+CALL METHOD OF excel_application 'Workbooks' = workbook.
+IF sy-subrc <> 0.
+  MESSAGE e002(zmsg) WITH 'Unable to create workbook'.
+  EXIT.
+ENDIF.
+
+* Add a new worksheet
+CALL METHOD OF workbook 'Worksheets' = worksheet.
+IF sy-subrc <> 0 OR worksheet IS INITIAL.
+  MESSAGE e003(zmsg) WITH 'Unable to create worksheet'.
+  EXIT.
+ENDIF.
+
+* Populate data in Excel
+row = 1.
+column = 1.
+LOOP AT it_combo INTO DATA(option).
+  CALL METHOD OF worksheet 'Cells' = cells EXPORTING #1 = row #2 = column.
+  IF sy-subrc <> 0.
+    MESSAGE e004(zmsg) WITH 'Unable to get cells'.
+    EXIT.
+  ENDIF.
+  SET PROPERTY OF cells 'Value' = option.
+  ADD 1 TO row.
+ENDLOOP.
+
+* Add combo box
+CALL METHOD OF worksheet 'Range' = range EXPORTING #1 = 'A1:A3'.
+CREATE OBJECT validation 'Validation'.
+CALL METHOD OF validation 'Add' EXPORTING #1 = 3 #2 = 1.
+
+* Convert table to variant
+CREATE DATA options TYPE TABLE OF string.
+ASSIGN options->* TO FIELD-SYMBOL(<options>).
+<options> = it_combo[].
+
+* Set list for validation
+CALL METHOD OF validation 'List' = <options>.
+
+* Save Excel file
+CALL METHOD OF workbook 'SaveAs' EXPORTING #1 = 'C:\path\to\your\file_with_combo.xlsx'.
+
+* Close Excel
+CALL METHOD OF workbook 'Close'.
+CALL METHOD OF excel_application 'Quit'.
+
+* Release Excel OLE object
+FREE OBJECT excel_application.
